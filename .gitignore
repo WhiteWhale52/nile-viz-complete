@@ -1,0 +1,9 @@
+*.nc
+NetCDF/
+Chart/
+V1/
+owid.*
+*.md
+Population/
+data/climate_cache/
+GKPKG/
