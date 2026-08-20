@@ -300,6 +300,13 @@
   }
   .grid-tile.nc-animating .grid-tile-daylabel { opacity: 1; }
   .grid-tile.nc-animating .grid-tile-stat { opacity: 0; }
+  .grid-tile.nc-nodaily .grid-tile-daylabel { opacity: 1; }
+  .grid-tile.nc-nodaily .grid-tile-stat { opacity: 0; }
+  .grid-tile-daylabel.grid-tile-nodaily-note {
+    color: var(--error);
+    background: rgba(181,68,46,0.1);
+    font-weight: 600;
+  }
   .grid-tile-expand-btn {
     position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; z-index: 3;
     display: flex; align-items: center; justify-content: center; border-radius: 5px;
@@ -315,6 +322,19 @@
     z-index: 4; opacity: 0; pointer-events: none; transition: opacity 0.12s;
   }
   .grid-tile.nc-loading .grid-tile-loading { opacity: 1; }
+  .grid-tile-delta .grid-tile-stat { bottom: auto; top: 6px; right: 8px; }
+  .grid-tile-delta-legend {
+    position: absolute; left: 8px; right: 8px; bottom: 6px; z-index: 2;
+    display: flex; flex-direction: column; gap: 2px; pointer-events: none;
+  }
+  .grid-tile-delta-legend-bar {
+    height: 7px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.7);
+    box-shadow: 0 1px 2px rgba(20,20,10,0.12);
+  }
+  .grid-tile-delta-legend-labels {
+    display: flex; justify-content: space-between; font-size: 9px; font-weight: 650;
+    color: var(--text); text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+  }
 
   /* ── FULLSCREEN YEAR PLAYER (click a grid tile to maximize) ───────── */
   .nc-fullscreen-overlay {
@@ -357,6 +377,14 @@
     font-size: 12px; color: var(--text-faint); padding: 0 18px 14px;
   }
 
+  .nc-fullscreen-tooltip {
+    position: absolute; pointer-events: none; z-index: 5;
+    background: var(--text); color: #fff; font-size: 12px; line-height: 1.4;
+    padding: 6px 10px; border-radius: 6px; box-shadow: 0 4px 14px rgba(20,20,10,0.18);
+    white-space: nowrap;
+  }
+  .nc-fullscreen-tooltip .nc-fst-name { font-weight: 650; }
+  .nc-fullscreen-tooltip .nc-fst-value { opacity: 0.85; margin-left: 6px; }
   .nc-fullscreen-loading {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.55); font-size: 13px; font-weight: 600; color: var(--text-dim);
@@ -715,6 +743,7 @@
         <option value="yearly-compare">Yearly trend (compare)</option>
         <option value="monthly">Daily (one year)</option>
         <option value="monthly-compare">Daily (compare)</option>
+        <option value="yearly-video">Yearly video (1 yr/sec)</option>
       </select>
     </div>
   </div>
@@ -857,7 +886,7 @@
       <label class="compare-toggle" id="delta-grid-toggle-row" style="display:none; margin-left:auto;">
         <input type="checkbox" id="delta-grid-toggle" />
         <span class="compare-toggle-track"></span>
-        What Changed??
+        What Changed?
       </label>
     </div>
     <div class="nc-grid" id="nc-grid"></div>
@@ -876,6 +905,7 @@
         <svg id="nc-fullscreen-svg"></svg>
         <div class="nc-fullscreen-daylabel" id="nc-fullscreen-daylabel" style="display:none;"></div>
         <div class="nc-fullscreen-loading" id="nc-fullscreen-loading">Loading daily data…</div>
+        <div class="nc-fullscreen-tooltip" id="nc-fullscreen-tooltip" style="display:none;"></div>
       </div>
       <div class="nc-fullscreen-controls" id="nc-fullscreen-controls" style="display:none;">
         <button class="play-btn-round" id="nc-fullscreen-playpause" title="Play / pause">⏸</button>
@@ -2756,6 +2786,20 @@ function getFillValue(feature, dataset, levelKey) {
   return getFillValueAt(feature, dataset, levelKey, state.mapYear, state.mapDay);
 }
 
+// Always reads day-by-day data for one fixed year, regardless of the
+// global Period dropdown (state.granularity). getFillValueAt only looks
+// at daily data when granularity === "monthly", which is right for the
+// main map/table/chart views but wrong for the grid's hover-to-animate
+// and maximize players: those should show daily change for the clicked
+// year even while the dropdown is still set to "Yearly trend".
+function getDailyFillValueAt(feature, dataset, levelKey, year, day) {
+  if (state.colorBy === "population") return feature.properties.population;
+  const regionSeries = ((dataset.monthlyByYear[year] || {})[levelKey] || {})[feature.properties.id] || [];
+  const targetDate = dateStrFromDayOfYear(year, day);
+  const match = regionSeries.find(r => r.date === targetDate);
+  return match ? match[state.climateVar] : undefined;
+}
+
 function computeColorScaleAndLegend(dataset, levelKey, visibleFeatures) {
   if (state.colorBy === "population") {
     const extent = state.popExtentAll || [0, 1];
@@ -3062,8 +3106,9 @@ function stopYearAnimation(container) {
   if (anim.dayLabelEl) {
     anim.dayLabelEl.textContent = "";
     anim.dayLabelEl.style.display = "none";
+    anim.dayLabelEl.classList.remove("grid-tile-nodaily-note");
   }
-  container.classList.remove("nc-animating", "nc-loading");
+  container.classList.remove("nc-animating", "nc-loading", "nc-nodaily");
 }
 
 function stopAllYearAnimations() {
@@ -3073,7 +3118,7 @@ function stopAllYearAnimations() {
 function paintYearFrame(anim, day) {
   anim.paths.forEach((path, regionId) => {
     const f = anim.featuresById.get(regionId);
-    const v = getFillValueAt(f, anim.dataset, anim.levelKey, anim.year, day);
+    const v = getDailyFillValueAt(f, anim.dataset, anim.levelKey, anim.year, day);
     path.setAttribute("fill", v === undefined || isNaN(v) ? "#e5e5e0" : colorScale(v));
   });
   if (anim.dayLabelEl) {
@@ -3097,8 +3142,17 @@ async function startYearAnimation(container, opts) {
 
   if (!isVariableDaily()) {
     // Annual-only variable (e.g. dtr): there's no day-by-day series to
-    // step through, so leave the static year value showing rather than
-    // faking an animation across years.
+    // step through, so surface a clear sign instead of just doing
+    // nothing on hover, which reads as broken rather than "not available".
+    // Registered as a no-op "animation" purely so stopYearAnimation (fired
+    // on mouseleave) knows to clean the note back up.
+    activeYearAnimations.set(container, { rafId: null, paths: new Map(), originalFill: new Map(), dayLabelEl });
+    if (dayLabelEl) {
+      dayLabelEl.textContent = "No daily data";
+      dayLabelEl.classList.add("grid-tile-nodaily-note");
+      dayLabelEl.style.display = "";
+    }
+    container.classList.add("nc-nodaily");
     return;
   }
 
@@ -3172,9 +3226,12 @@ function fsPaintFrame() {
   const day  = mode === "daily"  ? frame : state.mapDay;
   paths.forEach((path, regionId) => {
     const f = featuresById.get(regionId);
-    const v = getFillValueAt(f, dataset, levelKey, year, day);
+    const v = mode === "daily"
+      ? getDailyFillValueAt(f, dataset, levelKey, year, day)
+      : getFillValueAt(f, dataset, levelKey, year, day);
     path.setAttribute("fill", v === undefined || isNaN(v) ? "#e5e5e0" : colorScale(v));
   });
+  fsUpdateTooltipValue();
 
   const dayLabelEl = document.getElementById("nc-fullscreen-daylabel");
   if (mode === "daily") {
@@ -3188,6 +3245,44 @@ function fsPaintFrame() {
     document.getElementById("nc-fullscreen-title").textContent = String(frame);
   }
   fsScrubEl.value = index;
+}
+
+const fsTooltipEl = document.getElementById("nc-fullscreen-tooltip");
+
+function fsHideTooltip() {
+  if (fsTooltipEl) fsTooltipEl.style.display = "none";
+}
+
+function fsPositionTooltip(event) {
+  if (!fsTooltipEl || fsTooltipEl.style.display === "none") return;
+  const bodyRect = fsTooltipEl.offsetParent
+    ? fsTooltipEl.offsetParent.getBoundingClientRect()
+    : { left: 0, top: 0 };
+  fsTooltipEl.style.left = `${event.clientX - bodyRect.left + 14}px`;
+  fsTooltipEl.style.top = `${event.clientY - bodyRect.top + 14}px`;
+}
+
+// Refreshes the tooltip's value for the currently-hovered region against
+// whatever frame the player is on right now — called both on hover and
+// on every repaint, so scrubbing/playing while hovering stays accurate.
+function fsUpdateTooltipValue() {
+  if (!fsPlayer || !fsPlayer.hoveredRegionId || !fsTooltipEl) return;
+  const { mode, frames, index, featuresById, dataset, levelKey, fixedYear, hoveredRegionId } = fsPlayer;
+  const frame = frames[index];
+  const year = mode === "yearly" ? frame : fixedYear;
+  const day  = mode === "daily"  ? frame : state.mapDay;
+  const f = featuresById.get(hoveredRegionId);
+  if (!f) return;
+  const varMeta = CLIMATE_VARS[state.climateVar] || {};
+  const v = state.colorBy === "population"
+    ? f.properties.population
+    : (mode === "daily" ? getDailyFillValueAt(f, dataset, levelKey, year, day) : getFillValueAt(f, dataset, levelKey, year, day));
+  const name = f.properties.name || `Region ${f.properties.id}`;
+  const valueText = (v === undefined || v === null || isNaN(v))
+    ? "no data"
+    : `${(+v).toLocaleString(undefined, { maximumFractionDigits: 2 })}${varMeta.unit ? " " + varMeta.unit : ""}`;
+  fsTooltipEl.innerHTML = `<span class="nc-fst-name">${name}</span><span class="nc-fst-value">${valueText}</span>`;
+  fsTooltipEl.style.display = "block";
 }
 
 function fsPlayerLoop(ts) {
@@ -3235,10 +3330,11 @@ function closeYearFullscreen() {
   fsPlayerPause();
   fsPlayer = null;
   fullscreenAnimEl = null;
+  fsHideTooltip();
   overlay.classList.remove("active");
 }
 
-async function openYearFullscreen(dataset, levelKey, features, year) {
+async function openYearFullscreen(dataset, levelKey, features, year, opts = {}) {
   const overlay = document.getElementById("nc-fullscreen-overlay");
   const svgEl = document.getElementById("nc-fullscreen-svg");
   const titleEl = document.getElementById("nc-fullscreen-title");
@@ -3257,6 +3353,7 @@ async function openYearFullscreen(dataset, levelKey, features, year) {
   fsControlsEl.style.display = "flex";
   dayLabelEl.style.display = "none";
   dayLabelEl.textContent = "";
+  fsHideTooltip();
 
   const svgNS = "http://www.w3.org/2000/svg";
   svgEl.innerHTML = "";
@@ -3273,6 +3370,17 @@ async function openYearFullscreen(dataset, levelKey, features, year) {
     path.setAttribute("d", pathGen(f) || "");
     const v = getFillValueAt(f, dataset, levelKey, year, state.mapDay);
     path.setAttribute("fill", v === undefined || isNaN(v) ? "#e5e5e0" : colorScale(v));
+    // Region-level detail on hover: name + this frame's value, kept live
+    // as the player advances (see fsUpdateTooltipValue / fsPaintFrame).
+    path.addEventListener("mouseenter", () => {
+      if (fsPlayer) fsPlayer.hoveredRegionId = f.properties.id;
+      fsUpdateTooltipValue();
+    });
+    path.addEventListener("mousemove", (event) => fsPositionTooltip(event));
+    path.addEventListener("mouseleave", () => {
+      if (fsPlayer) fsPlayer.hoveredRegionId = null;
+      fsHideTooltip();
+    });
     svgEl.appendChild(path);
     paths.set(f.properties.id, path);
   });
@@ -3282,14 +3390,17 @@ async function openYearFullscreen(dataset, levelKey, features, year) {
   fsPlayerPause();
   const featuresById = new Map(features.map(f => [f.properties.id, f]));
 
-  if (isVariableDaily()) {
+  // forceYearly (from the Period dropdown's "year-per-second video" option)
+  // plays the year-by-year trend even for daily-capable variables, instead
+  // of only kicking in automatically for annual-only ones.
+  if (isVariableDaily() && !opts.forceYearly) {
     const totalDays = daysInYear(year);
     fsScrubEl.min = 0; fsScrubEl.max = totalDays - 1; fsScrubEl.step = 1; fsScrubEl.value = 0;
     fsPlayer = {
       mode: "daily",
       frames: Array.from({ length: totalDays }, (_, i) => i + 1),
       index: 0, playing: false, paths, featuresById, dataset, levelKey, fixedYear: year,
-      lastTs: null, rafId: null,
+      hoveredRegionId: null, lastTs: null, rafId: null,
     };
     if (!dataset.monthlyByYear[year]?.[levelKey]) {
       overlay.classList.add("nc-loading");
@@ -3306,9 +3417,14 @@ async function openYearFullscreen(dataset, levelKey, features, year) {
     fsPaintFrame();
     fsPlayerPlay();
   } else {
-    // Annual-only variable: instead of a static tile, play through every
-    // year in the dataset — one frame per second — so the long-run trend
-    // is watchable rather than requiring 12 separate clicks.
+    // Annual-only variable, or an explicit yearly-video request: instead
+    // of a static tile, play through every year in the dataset — one
+    // frame per second — so the long-run trend is watchable rather than
+    // requiring repeated clicks.
+    annualNoteEl.style.display = "block";
+    annualNoteEl.textContent = isVariableDaily()
+      ? "Playing the year-by-year trend, one year per second."
+      : "This variable is only available at annual resolution, so there's no day-by-day animation to play — playing the year-by-year trend instead, one year per second.";
     const yearsSeq = [];
     for (let y = YEAR_RANGE.min; y <= YEAR_RANGE.max; y++) yearsSeq.push(y);
     const startIdx = Math.max(0, yearsSeq.indexOf(year));
@@ -3317,7 +3433,7 @@ async function openYearFullscreen(dataset, levelKey, features, year) {
       mode: "yearly",
       frames: yearsSeq,
       index: startIdx, playing: false, paths, featuresById, dataset, levelKey,
-      lastTs: null, rafId: null,
+      hoveredRegionId: null, lastTs: null, rafId: null,
     };
     fsPaintFrame();
     fsPlayerPlay();
@@ -3348,7 +3464,6 @@ function renderYearGrid() {
 
   const levelKey = getLevelKey(state.currentLevel);
   const visibleFeatures = getVisibleFeatures(dataset, levelKey);
-  const years = pickGridYears();
   const drillable = canDrillDown();
 
   // "What Changed??" only makes sense once two distinct points are
@@ -3361,6 +3476,16 @@ function renderYearGrid() {
     deltaGridToggle.checked = false;
   }
 
+  // In compare mode, show exactly the two points being compared (plus
+  // the delta tile below) instead of the usual evenly-spaced spread —
+  // otherwise the delta tile ends up diffing two years that aren't even
+  // the two tiles sitting next to it, which reads as arbitrary. Every
+  // other compare surface in the app (map, chart, table) already only
+  // ever shows the two selected points, so this brings the grid in line.
+  const comparePanels = isCompare ? getComparePanels() : null;
+  const compareYears = comparePanels ? [...new Set(comparePanels.map(p => p.year))] : null;
+  const years = (compareYears && compareYears.length >= 2) ? compareYears : pickGridYears();
+
   computeGridColorScale(dataset, levelKey, visibleFeatures, years);
 
   const varMeta = CLIMATE_VARS[state.climateVar] || {};
@@ -3370,7 +3495,9 @@ function renderYearGrid() {
   titleEl2.textContent = `${varMeta.label || state.climateVar}, ${datasetLabel}, ${years[0]}–${years[years.length - 1]}`;
   const gridHintEl = document.querySelector("#nc-grid-pane .grid-hint");
   if (gridHintEl) {
-    const countLabel = `${years.length} evenly-spaced year${years.length === 1 ? "" : "s"}`;
+    const countLabel = (compareYears && compareYears.length >= 2)
+      ? `Comparing ${years[0]} → ${years[years.length - 1]}`
+      : `${years.length} evenly-spaced year${years.length === 1 ? "" : "s"}`;
     gridHintEl.textContent = drillable
       ? `${countLabel} · one shared color scale · click a region to zoom in`
       : `${countLabel} · one shared color scale`;
@@ -3481,15 +3608,15 @@ function renderYearGrid() {
   });
 
   if (isCompare && state.showDeltaTile && state.colorBy !== "population") {
-    appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE_W, TILE_H);
+    appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE_W, TILE_H, drillable);
   }
 }
 
-// One extra tile, opt-in via "What Changed??": instead of two independent
+// One extra tile, opt-in via "What Changed?": instead of two independent
 // snapshots, colors each region by (value at panel B) − (value at panel
 // A) on a diverging scale, so growth/decline reads directly instead of
 // requiring the viewer to compare two color legends by eye.
-function appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE_W, TILE_H) {
+function appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE_W, TILE_H, drillable) {
   const [panelA, panelB] = getComparePanels();
   const varMeta = CLIMATE_VARS[state.climateVar] || {};
 
@@ -3506,7 +3633,17 @@ function appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE
   });
 
   const maxAbs = deltaVals.length ? Math.max(...deltaVals.map(Math.abs), 1e-6) : 1;
-  const deltaScale = d3.scaleDivergingPow(varMeta.interpolator || d3.interpolateRdBu)
+  // Variables that already have a genuine diverging palette (tasmean, SPI,
+  // SPEI...) keep it — it already passes through a meaningful neutral
+  // midpoint. Everything else uses a fixed, direction-coded fallback
+  // (red = increase, blue = decrease) instead of stretching a one-way
+  // sequential palette (e.g. light→dark blue for precip) across positive
+  // and negative deltas, which made increase and decrease hard to tell
+  // apart since both ends were still the same hue.
+  const deltaInterpolator = (varMeta.diverging && varMeta.interpolator)
+    ? varMeta.interpolator
+    : (t => d3.interpolateRdBu(1 - t));
+  const deltaScale = d3.scaleDivergingPow(deltaInterpolator)
     .exponent(0.6).domain([-maxAbs, 0, maxAbs]);
 
   const tile = document.createElement("div");
@@ -3518,13 +3655,21 @@ function appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE
   visibleFeatures.forEach(f => {
     const d = deltas.get(f.properties.id);
     const path = document.createElementNS(svgNS, "path");
-    path.setAttribute("class", "grid-tile-region");
+    path.setAttribute("class", "grid-tile-region" + (drillable ? " drillable" : ""));
     path.setAttribute("d", pathD.get(f.properties.id) || "");
     path.setAttribute("fill", d === undefined ? "#e5e5e0" : deltaScale(d));
-    const titleEl = document.createElementNS(svgNS, "title");
     const label = f.properties.name || `Region ${f.properties.id}`;
-    titleEl.textContent = d === undefined ? `${label}: no data` : `${label}: ${d >= 0 ? "+" : ""}${d.toFixed(2)}${varMeta.unit ? " " + varMeta.unit : ""}`;
+    const titleEl = document.createElementNS(svgNS, "title");
+    titleEl.textContent = d === undefined
+      ? `${label}: no data`
+      : `${label}: ${d >= 0 ? "+" : ""}${d.toFixed(2)}${varMeta.unit ? " " + varMeta.unit : ""} (${d >= 0 ? "increase" : "decrease"})`;
     path.appendChild(titleEl);
+    if (drillable) {
+      path.addEventListener("click", (event) => {
+        event.stopPropagation();
+        drillIntoRegionId(event, visibleFeatures, f.properties.id);
+      });
+    }
     svgEl.appendChild(path);
   });
   tile.appendChild(svgEl);
@@ -3537,10 +3682,101 @@ function appendDeltaTile(gridEl, dataset, levelKey, visibleFeatures, pathD, TILE
   const stat = document.createElement("span");
   stat.className = "grid-tile-stat";
   const meanDelta = deltaVals.length ? deltaVals.reduce((s, v) => s + v, 0) / deltaVals.length : 0;
-  stat.textContent = `${meanDelta >= 0 ? "+" : ""}${meanDelta.toFixed(2)}${varMeta.unit ? " " + varMeta.unit : ""} avg`;
+  stat.textContent = `${meanDelta >= 0 ? "+" : ""}${meanDelta.toFixed(2)}${varMeta.unit ? " " + varMeta.unit : ""} avg (unweighted)`;
   tile.appendChild(stat);
 
+  // Its own mini legend — the delta tile uses a completely different
+  // (diverging, zero-centered) scale from every other tile's shared
+  // legend, so it needs its own key rather than relying on that one.
+  const legendWrap = document.createElement("div");
+  legendWrap.className = "grid-tile-delta-legend";
+  const legendBar = document.createElement("div");
+  legendBar.className = "grid-tile-delta-legend-bar";
+  const stops = d3.range(0, 1.01, 0.1).map(t => deltaScale(-maxAbs + t * 2 * maxAbs));
+  legendBar.style.background = `linear-gradient(to right, ${stops.join(",")})`;
+  const legendLabels = document.createElement("div");
+  legendLabels.className = "grid-tile-delta-legend-labels";
+  const unitSuffix = varMeta.unit ? ` ${varMeta.unit}` : "";
+  legendLabels.innerHTML =
+    `<span>\u2212${maxAbs.toFixed(1)}${unitSuffix}</span><span>0</span><span>+${maxAbs.toFixed(1)}${unitSuffix}</span>`;
+  legendWrap.appendChild(legendBar);
+  legendWrap.appendChild(legendLabels);
+  tile.appendChild(legendWrap);
+
+  // Maximize, for parity with the regular tiles — there's no time
+  // dimension to animate for a single delta, so this opens a larger
+  // static change map with the same hover detail rather than a player.
+  const expandBtn = document.createElement("button");
+  expandBtn.type = "button";
+  expandBtn.className = "grid-tile-expand-btn";
+  expandBtn.title = "Maximize";
+  expandBtn.textContent = "\u2922";
+  expandBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openDeltaFullscreen(visibleFeatures, deltas, deltaScale, maxAbs, varMeta, panelA, panelB);
+  });
+  tile.appendChild(expandBtn);
+  tile.addEventListener("click", () => {
+    openDeltaFullscreen(visibleFeatures, deltas, deltaScale, maxAbs, varMeta, panelA, panelB);
+  });
+
   gridEl.appendChild(tile);
+}
+
+// Static (non-playing) fullscreen view of the delta tile — reuses the
+// same overlay as the year player but skips the play/scrub controls and
+// paints one fixed set of diverging colors, with the same live
+// region-hover tooltip (name + this region's change) as the animated player.
+function openDeltaFullscreen(features, deltas, deltaScale, maxAbs, varMeta, panelA, panelB) {
+  const overlay = document.getElementById("nc-fullscreen-overlay");
+  const svgEl = document.getElementById("nc-fullscreen-svg");
+  const titleEl = document.getElementById("nc-fullscreen-title");
+  const subEl = document.getElementById("nc-fullscreen-sub");
+  const dayLabelEl = document.getElementById("nc-fullscreen-daylabel");
+  const annualNoteEl = document.getElementById("nc-fullscreen-annual-note");
+
+  fsPlayerPause();
+  fsPlayer = null;
+  fullscreenAnimEl = null;
+  fsHideTooltip();
+
+  titleEl.textContent = `Δ ${panelA.label} → ${panelB.label}`;
+  subEl.textContent = `${varMeta.label || state.climateVar} — change over the selected period`;
+  dayLabelEl.style.display = "none";
+  dayLabelEl.textContent = "";
+  fsControlsEl.style.display = "none";
+  annualNoteEl.style.display = "block";
+  annualNoteEl.textContent = "Static change map — a single delta between two points has nothing to animate.";
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  svgEl.innerHTML = "";
+  const FS_W = 960, FS_H = 620;
+  svgEl.setAttribute("viewBox", `0 0 ${FS_W} ${FS_H}`);
+  const fc = { type: "FeatureCollection", features };
+  const projection = d3.geoMercator().fitSize([FS_W, FS_H], fc);
+  const pathGen = d3.geoPath().projection(projection);
+
+  features.forEach(f => {
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("class", "grid-tile-region");
+    path.setAttribute("d", pathGen(f) || "");
+    const d = deltas.get(f.properties.id);
+    path.setAttribute("fill", d === undefined ? "#e5e5e0" : deltaScale(d));
+    path.addEventListener("mouseenter", () => {
+      const name = f.properties.name || `Region ${f.properties.id}`;
+      const valueText = d === undefined
+        ? "no data"
+        : `${d >= 0 ? "+" : ""}${d.toFixed(2)}${varMeta.unit ? " " + varMeta.unit : ""}`;
+      fsTooltipEl.innerHTML = `<span class="nc-fst-name">${name}</span><span class="nc-fst-value">${valueText}</span>`;
+      fsTooltipEl.style.display = "block";
+    });
+    path.addEventListener("mousemove", (event) => fsPositionTooltip(event));
+    path.addEventListener("mouseleave", fsHideTooltip);
+    svgEl.appendChild(path);
+  });
+
+  overlay.classList.add("active");
+  fullscreenAnimEl = overlay;
 }
 
 /* ── OPTIONAL BASE MAP IMAGE ─────────────────────────────────────── */
@@ -4169,6 +4405,26 @@ document.getElementById("granularity-select").addEventListener("change", async (
     updateView();
   } else {
     updateView();
+  }
+
+  if (rawValue === "yearly-video") {
+    // Jump to the Year Grid tab and immediately play the whole timeline
+    // as a 1-year-per-second video for whichever variable is selected,
+    // instead of requiring a tile click first.
+    const gridTabEl = tabsEl.querySelector('.nc-tab[data-tab="grid"]');
+    if (gridTabEl && state.activeTab !== "grid") {
+      state.activeTab = "grid";
+      state.chartHoveredId = null;
+      tabsEl.querySelectorAll(".nc-tab").forEach(t => t.classList.toggle("active", t === gridTabEl));
+      moveTabsThumb();
+      renderActiveTab();
+    }
+    const dataset = state.datasets[state.dataset];
+    if (dataset) {
+      const levelKey = getLevelKey(state.currentLevel);
+      const visibleFeatures = getVisibleFeatures(dataset, levelKey);
+      openYearFullscreen(dataset, levelKey, visibleFeatures, state.mapYear || YEAR_RANGE.min, { forceYearly: true });
+    }
   }
 });
 
