@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nile Basin Climate Explorer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="nile-chart-root">
+
+  <div class="nc-header">
+    <div>
+      <div class="nc-title" id="nc-title">Nile Basin Climate Explorer</div>
+      <div class="nc-sub" id="nc-sub">Hover a region for its trend · click to zoom in</div>
+    </div>
+    <div class="data-status" id="data-status">
+      <span class="status-dot"></span>
+      <span id="status-text">Ready</span>
+    </div>
+  </div>
+
+  <div class="nc-controls">
+    <div class="ctrl-group">
+      <label class="ctrl-label">Variable</label>
+      <select class="ctrl-select" id="var-select"></select>
+      
+      <label class="ctrl-label">Scale</label>
+      <select class="ctrl-select" id="dataset-select">
+        <option value="basins">River Basins</option>
+        <option value="countries">Countries</option>
+      </select>
+      
+      <label class="ctrl-label">Period</label>
+      <select class="ctrl-select" id="granularity-select">
+        <option value="yearly">Yearly trend</option>
+        <option value="yearly-compare">Yearly trend (compare)</option>
+        <option value="monthly">Daily (one year)</option>
+        <option value="monthly-compare">Daily (compare)</option>
+        <option value="yearly-video">Yearly video (1 yr/sec)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="nc-breadcrumb" id="nc-breadcrumb">
+    <span class="crumb current" data-level="0">Nile Basin</span>
+  </div>
+
+  <div class="nc-tabs" id="nc-tabs">
+    <div class="nc-tabs-track" id="nc-tabs-track">
+      <div class="nc-tabs-thumb" id="nc-tabs-thumb"></div>
+      <span class="nc-tab active" data-tab="map">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 14.5s5-4.2 5-8.2A5 5 0 0 0 3 6.3c0 4 5 8.2 5 8.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.2" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg>
+        Map
+      </span>
+      <span class="nc-tab" data-tab="table">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M2 10.5h12M6.3 2.5v11" stroke="currentColor" stroke-width="1.1"/></svg>
+        Table
+      </span>
+      <span class="nc-tab" data-tab="chart">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 12.5 5.6 7.8l2.6 2.8L14 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="14" cy="4" r="1.1" fill="currentColor"/></svg>
+        Line Graph
+      </span>
+      <span class="nc-tab" data-tab="grid">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Year Grid
+      </span>
+    </div>
+  </div>
+
+  <div class="nc-legend" id="nc-legend-standalone">
+    <span id="nc-legend-label">POPULATION</span>
+    <div style="display:flex; flex-direction:column; gap:0;">
+      <div class="nc-legend-gradient-wrap">
+        <div class="nc-legend-gradient" id="nc-legend-gradient"></div>
+        <div class="nc-legend-marker" id="nc-legend-marker"></div>
+      </div>
+      <div class="nc-legend-ticks" id="nc-legend-ticks"></div>
+    </div>
+    <span id="nc-legend-min" style="display:none;">low</span>
+    <span style="margin-left:auto; display:none;" id="nc-legend-max">high</span>
+  </div>
+
+  <div class="nc-layout" id="nc-layout">
+  <div class="nc-main" id="nc-main">
+    <div class="nc-map-pane" id="nc-map-wrap">
+      <svg class="nc-svg" id="nc-svg"></svg>
+      <div class="nc-hint" id="nc-hint">Hover a region to see its trend · click to zoom in</div>
+      <button class="nc-back-btn" id="nc-back">← Zoom out</button>
+      <div class="nc-zoom-ctrl">
+        <button id="nc-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+        <button id="nc-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+        <button id="nc-zoom-reset" title="Reset zoom" aria-label="Reset zoom">⟲</button>
+      </div>
+
+      <div class="nc-map-options">
+        <div class="opt-section">
+          <label class="opt-row">
+            <input type="checkbox" id="opt-country-outline" />
+            Show country outlines
+          </label>
+        </div>
+
+        <div class="opt-section">
+          <label class="opt-row" style="margin-bottom: 2px;">Color regions by</label>
+          <div class="colorby-toggle">
+            <div class="colorby-btn active" id="colorby-variable">Variable</div>
+            <div class="colorby-btn" id="colorby-population">Population</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hover-card" id="hover-card">
+      <div class="hover-card-name" id="hover-card-name">—</div>
+      <div class="hover-card-pop">
+        Population (<b id="hover-card-pop-val">—</b>)
+      </div>
+      <div class="hover-card-var-label" id="hover-card-var-label">Max Temperature, by year</div>
+      <div class="hover-card-chart" id="hover-card-chart"></div>
+      <div class="hover-card-drill" id="hover-card-drill">Click to zoom in ↗</div>
+    </div>
+  </div>
+
+  <div class="nc-sidebar" id="nc-sidebar">
+    <div class="nc-stats" id="nc-stats">
+      <div class="stat-card">
+        <div class="stat-label">Population</div>
+        <div class="stat-value" id="stat-pop">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Area</div>
+        <div class="stat-value" id="stat-area">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="stat-mean-label">Basin mean (selected year)</div>
+        <div class="stat-value" id="stat-mean">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" id="stat-trend-label">(1983-2025) 42-yr trend</div>
+        <div class="stat-value" id="stat-trend">—</div>
+      </div>
+    </div>
+
+  </div>
+  </div>
+
+  <div class="nc-table-pane" id="nc-table-pane">
+    <div class="grid-hint" id="table-drill-hint" style="padding:0 0 8px; display:none;">Click a region for a trend preview · right-click to zoom in</div>
+    <table class="region-table" id="region-table">
+      <thead>
+        <tr>
+          <th data-sort="name">Region</th>
+          <th data-sort="population" class="num">Population</th>
+          <th data-sort="area_km2" class="num">Area (km²)</th>
+          <th data-sort="mean" class="num sorted">Mean</th>
+          <th data-sort="trend" class="num" id="table-trend-header">(1983-2025) 42-yr trend</th>
+        </tr>
+      </thead>
+      <tbody id="region-table-body"></tbody>
+    </table>
+  </div>
+
+  <div class="nc-chart-pane" id="nc-chart-pane">
+    <div class="chart-plot-area" id="chart-plot-area">
+      <div class="chart-overlay-toggles" style="display:flex; gap:14px; align-items:center; font-size:12px; color:var(--text-dim);">
+        <label><input type="checkbox" id="chart-toggle-mean"> Show mean line</label>
+        <label><input type="checkbox" id="chart-toggle-trend"> Show trend line</label>
+        <span class="grid-hint" id="chart-drill-hint" style="display:none;">Double-click a line or legend entry to zoom in</span>
+        <span class="chart-zoom-hint" id="chart-zoom-hint" style="display:none;"></span>
+        <span class="chart-mode-back-btn" id="chart-mode-back-btn" style="display:none;">◀ Back to yearly view</span>
+        <button type="button" class="chart-zoom-reset-btn" id="chart-zoom-reset-btn" style="display:none;">Reset zoom</button>
+      </div>
+      <svg id="line-chart-svg"></svg>
+    </div>
+    <div class="chart-legend" id="chart-legend"></div>
+  </div>
+
+  <div class="nc-grid-pane" id="nc-grid-pane">
+    <div class="nc-grid-toolbar">
+      <span id="nc-grid-title">Max Temperature, Nile Basin, 1983–2025</span>
+      <span class="grid-hint">Evenly-spaced years · one shared color scale</span>
+      <label class="compare-toggle" id="delta-grid-toggle-row" style="display:none; margin-left:auto;">
+        <input type="checkbox" id="delta-grid-toggle" />
+        <span class="compare-toggle-track"></span>
+        What Changed?
+      </label>
+    </div>
+    <div class="nc-grid" id="nc-grid"></div>
+
+    <div class="nc-fullscreen-overlay" id="nc-fullscreen-overlay">
+      <div class="nc-fullscreen-card">
+        <div class="nc-fullscreen-header">
+          <div>
+            <div class="nc-fullscreen-title" id="nc-fullscreen-title">2010</div>
+            <div class="nc-fullscreen-sub" id="nc-fullscreen-sub">Max Temperature, Nile Basin</div>
+          </div>
+          <button class="nc-fullscreen-close" id="nc-fullscreen-close" title="Back to grid (Esc)">&#10005;</button>
+        </div>
+        <div class="nc-fullscreen-body">
+          <svg id="nc-fullscreen-svg"></svg>
+          <div class="nc-fullscreen-daylabel" id="nc-fullscreen-daylabel" style="display:none;"></div>
+          <div class="nc-fullscreen-loading" id="nc-fullscreen-loading">Loading daily data…</div>
+          <div class="nc-fullscreen-tooltip" id="nc-fullscreen-tooltip" style="display:none;"></div>
+        </div>
+        <div class="nc-fullscreen-controls" id="nc-fullscreen-controls" style="display:none;">
+          <button class="play-btn-round" id="nc-fullscreen-playpause" title="Play / pause">⏸</button>
+          <input type="range" id="nc-fullscreen-scrub" min="0" max="1" value="0" step="1" style="flex:1;" />
+          <span id="nc-fullscreen-scrub-label" style="min-width:64px; text-align:right; font-size:12px; opacity:0.75;"></span>
+        </div>
+        <div class="nc-fullscreen-annual-note" id="nc-fullscreen-annual-note" style="display:none;">
+          This variable is only available at annual resolution, so there's no day-by-day animation to play — showing the static year value.
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="nc-timeline-drawer" id="nc-timeline-drawer">
+    <button class="nc-timeline-readout" id="nc-timeline-readout">
+      <span id="nc-timeline-readout-text">1983–2025</span>
+      <span class="nc-timeline-caret" id="nc-timeline-caret">▾</span>
+    </button>
+
+    <div class="nc-timeline" id="nc-timeline-body" style="display:none; flex-direction:column; gap:14px; padding:12px 14px; border-top:1px solid var(--border, #333);">
+
+      <div class="ctrl-group" id="year-range-row" style="flex-direction:column; align-items:stretch; gap:2px; font-size: 12px;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <span class="grapher-h5-black-caps">Time period</span>
+        </div>
+        <div class="dual-range-handle-labels" id="year-range-handle-labels">
+          <span id="year-range-handle-label-start">1983</span>
+          <span id="year-range-handle-label-end">2025</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="play-btn-round" id="play-btn" title="Play / animate this window">▶</button>
+          <div style="flex:1;">
+            <div class="dual-range-labels">
+              <span id="year-range-bound-min">1983</span>
+              <span id="year-range-bound-max">2025</span>
+            </div>
+            <div class="dual-range-wrap" id="year-range-dual-wrap">
+              <div class="dual-range-track"></div>
+              <div class="dual-range-progress" id="year-range-progress"></div>
+              <input type="range" id="year-range-slider-min" class="dual-thumb" min="1983" max="2025" value="1983" step="1" />
+              <input type="range" id="year-range-slider-max" class="dual-thumb" min="1983" max="2025" value="2025" step="1" />
+            </div>
+            <div class="dual-range-wrap" id="year-single-wrap" style="display:none;">
+              <div class="dual-range-track"></div>
+              <input type="range" id="year-single-slider" class="dual-thumb" min="1983" max="2025" value="1983" step="1" style="width:100%;" />
+            </div>
+          </div>
+        </div>
+        <span id="year-range-hint" style="opacity:0.6;">Drag both handles apart to compare two years side by side.</span>
+        <label class="compare-toggle" id="compare-toggle-year-hidden" style="display:none;">
+          <input type="checkbox" id="compare-mode-toggle" />
+          <span class="compare-toggle-track"></span>
+          Compare
+        </label>
+      </div>
+
+      <div class="ctrl-group" id="day-range-row" style="flex-direction:column; align-items:stretch; gap:2px; font-size: 12px; display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <span class="grapher-h5-black-caps">Day of year</span>
+          <label class="compare-toggle" id="compare-across-years-row" style="display:none;">
+            <input type="checkbox" id="same-date-toggle" />
+            <span class="compare-toggle-track"></span>
+            Compare same date across years
+          </label>
+        </div>
+        <div class="dual-range-handle-labels" id="day-range-handle-labels">
+          <span id="day-range-handle-label-start">Jan 1</span>
+          <span id="day-range-handle-label-end">Dec 31</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="play-btn-round" id="day-play-btn" title="Play / animate this window">▶</button>
+          <div style="flex:1;">
+            <div class="dual-range-labels">
+              <span>Jan 1</span>
+              <span>Dec 31</span>
+            </div>
+            <div class="dual-range-wrap" id="day-range-dual-wrap">
+              <div class="dual-range-track"></div>
+              <div class="dual-range-progress" id="day-range-progress"></div>
+              <input type="range" id="day-range-slider-min" class="dual-thumb" min="1" max="365" value="1" step="1" />
+              <input type="range" id="day-range-slider-max" class="dual-thumb" min="1" max="365" value="365" step="1" />
+            </div>
+            <div class="dual-range-wrap" id="day-single-wrap" style="display:none;">
+              <div class="dual-range-track"></div>
+              <input type="range" id="day-single-slider" class="dual-thumb" min="1" max="365" value="1" step="1" style="width:100%;" />
+            </div>
+            <div id="day-single-context-label" style="opacity:0.75; margin-top:2px; display:none;"></div>
+          </div>
+        </div>
+        <span style="opacity:0.6;" id="day-range-static-hint">Drag both handles apart to compare two days side by side (within the selected year).</span>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
